@@ -1,0 +1,14 @@
+node_modules/
+.env
+.DS_Store
+*.log
+dist/
+build/
+.vscode/
+.idea/
+claude.md/
+setup.md/
+new_features.md/
+history.js
+UPDATED_CHECKLIST.md
+test-subscription.js

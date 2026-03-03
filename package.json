@@ -1,0 +1,31 @@
+{
+  "name": "quiz-bot",
+  "version": "2.0.0",
+  "description": "Professional Telegram Quiz Bot with group support and auto-stop features",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "quiz",
+    "uzbek"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mammoth": "^1.8.0",
+    "mongoose": "^9.2.3",
+    "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "officegen": "^0.6.5",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
