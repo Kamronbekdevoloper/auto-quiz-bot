@@ -16,9 +16,7 @@ import {
 
 const MIN_READY_PLAYERS = 2;
 const MIN_STOP_VOTES    = 2;
-const START_COUNTDOWN   = 5; // sekund
-
-// === CALLBACK HANDLER ===
+const START_COUNTDOWN = 5;
 
 export function setupCallbackHandler(bot) {
   bot.on("callback_query", async (query) => {
@@ -27,15 +25,10 @@ export function setupCallbackHandler(bot) {
     const chatId   = query.message?.chat?.id;
     const data     = query.data;
 
-    // ─── SUBSCRIPTION CHECK ───────────────────────────────
     if (data === "check_subscription") {
       const isSubscribed = await isUserSubscribed(bot, userId, query.message?.chat?.type || "private");
-
       if (!isSubscribed) {
-        await bot.answerCallbackQuery(query.id, {
-          text: "❌ Hali obuna qilmagansiz!",
-          show_alert: true,
-        });
+        await bot.answerCallbackQuery(query.id, { text: "❌ Hali obuna qilmagansiz!", show_alert: true });
         const { text, keyboard } = getSubscriptionBlockMessage();
         await bot.editMessageText(text, {
           chat_id: chatId,
@@ -45,7 +38,6 @@ export function setupCallbackHandler(bot) {
         });
         return;
       }
-
       await bot.answerCallbackQuery(query.id, { text: "✅ Obuna tasdiqlandi!" });
       await bot.deleteMessage(chatId, query.message.message_id);
       await bot.sendMessage(
@@ -56,7 +48,6 @@ export function setupCallbackHandler(bot) {
       return;
     }
 
-    // ─── START MENU ───────────────────────────────────────
     if (data === "create_test") {
       await bot.answerCallbackQuery(query.id);
       await bot.editMessageText(`📝 <b>Test yaratish</b>\n\nQanday usulda?`, {
@@ -114,44 +105,28 @@ export function setupCallbackHandler(bot) {
     }
 
     // ─── GURUH: TAYYOR TUGMASI ────────────────────────────
-    // ✅ Bu callback guruh xabaridan keladi → query.message.chat.id = guruh chatId!
     if (data.startsWith("grp_ready_")) {
       const quizId  = data.replace("grp_ready_", "");
       const pending = sessionManager.getPendingGroup(quizId);
 
       if (!pending) {
-        await bot.answerCallbackQuery(query.id, {
-          text: "❌ Test topilmadi yoki allaqachon boshlangan.",
-          show_alert: true,
-        });
+        await bot.answerCallbackQuery(query.id, { text: "❌ Test topilmadi yoki allaqachon boshlangan.", show_alert: true });
         return;
       }
 
-      // Allaqachon tayyor bo'lganmi?
       if (pending.readyPlayers.has(userId)) {
-        await bot.answerCallbackQuery(query.id, {
-          text: "✅ Siz allaqachon tayyorsiz!",
-          show_alert: false,
-        });
+        await bot.answerCallbackQuery(query.id, { text: "✅ Siz allaqachon tayyorsiz!", show_alert: false });
         return;
       }
 
-      // Tayyor ro'yxatiga qo'shish
       sessionManager.addReadyPlayer(quizId, userId, userName);
       const readyCount = sessionManager.getReadyCount(quizId);
 
-      await bot.answerCallbackQuery(query.id, {
-        text: `✅ Tayyor! ${readyCount}/${MIN_READY_PLAYERS}`,
-        show_alert: false,
-      });
+      await bot.answerCallbackQuery(query.id, { text: `✅ Tayyor! ${readyCount}/${MIN_READY_PLAYERS}`, show_alert: false });
 
-      // Tayyor bo'lganlar nomini ko'rsat
-      const readyNames = Array.from(pending.readyPlayers.values())
-        .map(n => `@${n}`).join(", ");
-
+      const readyNames = Array.from(pending.readyPlayers.values()).map(n => `@${n}`).join(", ");
       const quiz = await quizStorage.getQuiz(quizId);
 
-      // ── Hali yetarli emas ──
       if (readyCount < MIN_READY_PLAYERS) {
         await bot.editMessageText(
           `🎯 <b>${quiz?.title || "Test"}</b>\n\n` +
@@ -168,7 +143,6 @@ export function setupCallbackHandler(bot) {
         return;
       }
 
-      // ── Yetarli kishi tayyor — countdown boshlash ──
       await bot.editMessageText(
         `🎯 <b>${quiz?.title || "Test"}</b>\n\n` +
         `📝 Savollar: <b>${quiz?.questions?.length || 0} ta</b>\n\n` +
@@ -178,11 +152,10 @@ export function setupCallbackHandler(bot) {
           chat_id: chatId,
           message_id: query.message.message_id,
           parse_mode: "HTML",
-          reply_markup: { inline_keyboard: [] }, // Tugmalarni olib tashlash
+          reply_markup: { inline_keyboard: [] },
         },
       );
 
-      // Countdown tugasi
       const pending2 = sessionManager.getPendingGroup(quizId);
       pending2.startTimeout = setTimeout(async () => {
         if (!sessionManager.getPendingGroup(quizId)) return;
@@ -192,16 +165,14 @@ export function setupCallbackHandler(bot) {
 
         sessionManager.deletePendingGroup(quizId);
 
-        // Vaqt tanlash xabari
         await bot.sendMessage(
           chatId,
           `⏱ <b>Vaqtni tanlang</b>\n\nHar bir savol uchun necha sekund?`,
           { parse_mode: "HTML", reply_markup: getTimeKeyboard() },
         );
 
-        // Session yaratish
-        const session     = sessionManager.createSession(chatId, quizData.questions, null, "group");
-        session.quizId    = quizId;
+        const session = sessionManager.createSession(chatId, quizData.questions, null, "group");
+        session.quizId = quizId;
 
         console.log(`🚀 Guruh test ready: chatId=${chatId}, quizId=${quizId}`);
       }, START_COUNTDOWN * 1000);
@@ -209,18 +180,13 @@ export function setupCallbackHandler(bot) {
       return;
     }
 
-    // ─── GURUH: STATUS (faqat info) ──────────────────────
     if (data.startsWith("grp_status_")) {
-      const quizId    = data.replace("grp_status_", "");
+      const quizId = data.replace("grp_status_", "");
       const readyCount = sessionManager.getReadyCount(quizId);
-      await bot.answerCallbackQuery(query.id, {
-        text: `👥 Tayyor: ${readyCount}/${MIN_READY_PLAYERS}`,
-        show_alert: false,
-      });
+      await bot.answerCallbackQuery(query.id, { text: `👥 Tayyor: ${readyCount}/${MIN_READY_PLAYERS}`, show_alert: false });
       return;
     }
 
-    // ─── GURUH: TO'XTATISH OVOZI ─────────────────────────
     if (data.startsWith("grp_stop_")) {
       const targetChatId = parseInt(data.replace("grp_stop_", ""));
       const session      = sessionManager.getSession(targetChatId);
@@ -231,11 +197,8 @@ export function setupCallbackHandler(bot) {
       }
 
       const voteCount = sessionManager.addStopVote(targetChatId, userId);
-      await bot.answerCallbackQuery(query.id, {
-        text: `⏹ Ovozingiz qabul qilindi (${voteCount}/${MIN_STOP_VOTES})`,
-      });
+      await bot.answerCallbackQuery(query.id, { text: `⏹ Ovozingiz qabul qilindi (${voteCount}/${MIN_STOP_VOTES})` });
 
-      // Tugmani yangilash
       try {
         await bot.editMessageReplyMarkup(
           getGroupStopKeyboard(targetChatId, voteCount, MIN_STOP_VOTES),
@@ -252,7 +215,6 @@ export function setupCallbackHandler(bot) {
       return;
     }
 
-    // ─── PRIVATE QUIZ BOSHLASH ────────────────────────────
     if (data.startsWith("start_quiz_")) {
       const quizId = data.replace("start_quiz_", "");
 
@@ -264,7 +226,6 @@ export function setupCallbackHandler(bot) {
         return;
       }
 
-      // ✅ await — bu fix muhim!
       const quiz = await quizStorage.getQuiz(quizId);
       if (!quiz) {
         await bot.answerCallbackQuery(query.id, { text: "❌ Test topilmadi.", show_alert: true });
@@ -279,14 +240,13 @@ export function setupCallbackHandler(bot) {
         { parse_mode: "HTML", reply_markup: getTimeKeyboard() },
       );
 
-      const session     = sessionManager.createSession(chatId, quiz.questions, null, "private");
-      session.quizId    = quizId;
-      session.userId    = userId;
-      session.userName  = userName;
+      const session = sessionManager.createSession(chatId, quiz.questions, null, "private");
+      session.quizId = quizId;
+      session.userId = userId;
+      session.userName = userName;
       return;
     }
 
-    // ─── DAVOM ETASIZMI? ──────────────────────────────────
     if (data === "continue_test_yes") {
       const session = sessionManager.getSession(chatId);
       if (!session || !session.isActive) {
@@ -308,13 +268,13 @@ export function setupCallbackHandler(bot) {
       }
       await bot.answerCallbackQuery(query.id, { text: "⏹ To'xtatildi!" });
       await bot.deleteMessage(chatId, query.message.message_id);
+      const savedSession = { ...session };
       sessionManager.endSession(chatId);
       await bot.sendMessage(chatId, "⏹ Test to'xtatildi. Natijalar:");
-      await showResults(bot, chatId, session);
+      await showResults(bot, chatId, savedSession);
       return;
     }
 
-    // ─── VAQT TANLASH ─────────────────────────────────────
     if (data.startsWith("time_")) {
       const isSubscribed = await isUserSubscribed(bot, userId, query.message.chat.type);
       if (!isSubscribed) {
@@ -339,7 +299,6 @@ export function setupCallbackHandler(bot) {
       await bot.answerCallbackQuery(query.id);
       await bot.deleteMessage(chatId, query.message.message_id);
 
-      // Guruhda "to'xtatish" tugmasi bilan xabar
       const isGroup    = session.chatType !== "private";
       const stopMarkup = isGroup ? getGroupStopKeyboard(chatId, 0, MIN_STOP_VOTES) : null;
 
@@ -383,9 +342,47 @@ export function setupPollAnswerHandler(bot) {
       return;
     }
 
-    if (session.answeredQuestions.has(pollId)) return;
+    const isGroup = session.chatType !== "private";
 
-    session.answeredQuestions.add(pollId);
+    // ✅ FIX: Guruhda har bir USER har bir POLLga bitta javob berishi mumkin
+    // Private: pollId bilan dedup (bitta user bitta poll)
+    // Guruh:   pollId_userId bilan dedup (har user o'z javobini beradi)
+    const dedupKey = isGroup ? `${pollId}_${userId}` : pollId;
+
+    if (session.answeredQuestions.has(dedupKey)) return;
+    session.answeredQuestions.add(dedupKey);
+
+    // Javob to'g'rimi?
+    const isCorrect = pollAnswer.option_ids[0] === session.currentShuffledQuestion?.correctIndex;
+
+    // ✅ Guruh ishtirokchisi scorini yangilash (har user uchun — dedupKey bilan)
+    if (isGroup) {
+      const groupSession = sessionManager.groupSessions.get(chatId);
+      if (groupSession) {
+        const existing = groupSession.participants.get(userId) || {
+          correctAnswers: 0,
+          wrongAnswers: 0,
+        };
+        sessionManager.updateGroupParticipant(chatId, userId, userName, {
+          correctAnswers: existing.correctAnswers + (isCorrect ? 1 : 0),
+          wrongAnswers: existing.wrongAnswers + (!isCorrect ? 1 : 0),
+          endTime: Date.now(),
+        });
+      }
+    }
+
+    // ✅ FIX: Savolni faqat BIR MARTA oldinga siljitish
+    // Guruhda birinchi javob bergan kishi savolni almashtiradi
+    const advanceKey = `advance_${pollId}`;
+    if (session.answeredQuestions.has(advanceKey)) {
+      // Savol allaqachon oldinga siljitilyapti — faqat score yangilandi, chiqamiz
+      console.log(`📊 Guruh score yangilandi: ${userId} (${userName}) — ${isCorrect ? "✅" : "❌"}`);
+      return;
+    }
+    session.answeredQuestions.add(advanceKey);
+
+    // === Quyidagi kod faqat BIR MARTA (birinchi javob uchun) ishlaydi ===
+
     session.answered = true;
     sessionManager.resetUnanswered(chatId);
 
@@ -394,31 +391,16 @@ export function setupPollAnswerHandler(bot) {
       session.maxTimeTimeout = null;
     }
 
-    const currentQuestion = session.questions[session.currentIndex];
-    if (!currentQuestion) return;
-
-    const isCorrect = pollAnswer.option_ids[0] === session.currentShuffledQuestion.correctIndex;
-
-    if (isCorrect) {
-      session.correctAnswers++;
-    } else {
-      session.wrongAnswers++;
-    }
-
-    // Guruh ishtirokchisini yangilash
-    if (session.chatType !== "private") {
-      const groupSession = sessionManager.groupSessions.get(chatId);
-      if (groupSession) {
-        const existing = groupSession.participants.get(userId);
-        sessionManager.updateGroupParticipant(chatId, userId, userName, {
-          correctAnswers: (existing?.correctAnswers || 0) + (isCorrect ? 1 : 0),
-          wrongAnswers:   (existing?.wrongAnswers   || 0) + (!isCorrect ? 1 : 0),
-          endTime: Date.now(),
-        });
+    // Private uchun session-level counter (natija xabarida ishlatiladi)
+    if (!isGroup) {
+      if (isCorrect) {
+        session.correctAnswers++;
+      } else {
+        session.wrongAnswers++;
       }
     }
 
-    console.log(`📊 Chat ${chatId}: ${session.correctAnswers}✅/${session.wrongAnswers}❌ (${userName})`);
+    console.log(`📊 Chat ${chatId}: savol oldinga siljitilyapti (${userName} — ${isCorrect ? "✅" : "❌"})`);
 
     setTimeout(() => {
       if (sessionManager.hasSession(chatId) && session.isActive) {
