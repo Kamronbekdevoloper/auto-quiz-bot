@@ -2,7 +2,8 @@ import quizStorage from "../managers/quizStorage.js";
 import { isUserSubscribed } from "../utils/subscriptionChecker.js";
 
 // === INLINE QUERY HANDLER ===
-// Guruhga quiz card yuborish uchun
+// Bu handler endi faqat qo'lda @bot quizId yozilganda ishlaydi.
+// Asosiy guruh oqimi: getQuizShareKeyboard → startgroup URL → commandHandler
 
 export function setupInlineQueryHandler(bot) {
   bot.on("inline_query", async (query) => {
@@ -23,7 +24,7 @@ export function setupInlineQueryHandler(bot) {
         return;
       }
 
-      // quizId bo'sh bo'lsa — yo'riqnoma ko'rsat
+      // quizId bo'sh bo'lsa
       if (!quizId) {
         await bot.answerInlineQuery(query.id, [], {
           cache_time: 0,
@@ -45,35 +46,34 @@ export function setupInlineQueryHandler(bot) {
         return;
       }
 
-      // Bot username olish
       const botInfo = await bot.getMe();
       const botUsername = botInfo.username;
 
-      // startgroup URL — guruhda /start quiz_QUIZID yuboradi
+      // ✅ FIX: startgroup URL — guruhda /start quiz_QUIZID yuboradi (1 ta picker)
+      // "Guruhda boshlash" tugmasi endi startgroup ishlatadi — bu inline card uchun to'g'ri,
+      // chunki bu card qo'lda @bot yozish orqali yuboriladi.
       const startGroupUrl = `https://t.me/${botUsername}?startgroup=quiz_${quizId}`;
 
-      // Quiz card yaratish
       const results = [
         {
           type: "article",
           id: quizId,
           title: `📝 ${quiz.title || "Test"} — ${quiz.questions.length} ta savol`,
-          description: `Guruhda boshlash uchun ushbu kartani yuboring`,
+          description: "Guruhda boshlash uchun ushbu kartani yuboring",
           thumbnail_url: "https://telegram.org/img/t_logo.png",
           input_message_content: {
             message_text:
               `🎯 <b>${quiz.title || "Test"}</b>\n\n` +
               `📝 Savollar soni: <b>${quiz.questions.length}</b>\n` +
               `👤 Yaratuvchi: @${quiz.creatorName}\n\n` +
-              `👇 Guruhda testni boshlash uchun quyidagi tugmani bosing:`,
+              `👇 <i>Quyidagi tugmani bosib guruhni tanlang:</i>`,
             parse_mode: "HTML",
           },
           reply_markup: {
             inline_keyboard: [
               [
                 {
-                  // ✅ startgroup — guruhda /start quiz_QUIZID yuboradi
-                  text: "▶️ Guruhda boshlash",
+                  text: "🚀 Guruhda boshlash",
                   url: startGroupUrl,
                 },
               ],
@@ -83,7 +83,7 @@ export function setupInlineQueryHandler(bot) {
       ];
 
       await bot.answerInlineQuery(query.id, results, {
-        cache_time: 30,
+        cache_time: 0, // ✅ FIX: 30 → 0 (o'chirilgan quiz eski card ko'rsatmasligi uchun)
       });
 
       console.log(`✅ Inline quiz card yuborildi: ${quizId}`);

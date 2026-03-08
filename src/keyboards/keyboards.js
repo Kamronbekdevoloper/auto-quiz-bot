@@ -47,36 +47,32 @@ export function getContinueTestKeyboard() {
   };
 }
 
-// ✅ Fayl yuborilgandan keyin ko'rsatiladigan keyboard
+// ✅ FIX: switch_inline_query_chosen_chat O'RNIGA to'g'ridan-to'g'ri startgroup URL
+// OLDIN: private → "Guruhga yuborish" (switch_inline_query → 1-picker)
+//          → guruhga inline card → "Guruhda boshlash" (startgroup → 2-picker) 🔄 LOOP
+// ENDI:  private → "Guruhga yuborish" (startgroup → 1-picker)
+//          → /start quiz_ID guruhga → Ready-up xabar ✅
 export function getQuizShareKeyboard(quizId, botUsername) {
   return {
     inline_keyboard: [
-      // 1. Shu yerda (private) boshlash
       [
         {
           text: "▶️ Shu yerda boshlash",
           callback_data: `start_quiz_${quizId}`,
         },
       ],
-      // 2. Guruhga yuborish — chat picker ochiladi, guruh tanlanadi,
-      //    bot inline query javob beradi, card guruhga yuboriladi
       [
         {
+          // ✅ FIX: Endi bitta group picker — to'g'ridan-to'g'ri /start yuboriladi
           text: "👥 Guruhga yuborish",
-          switch_inline_query_chosen_chat: {
-            query: quizId,
-            allow_user_chats: false,
-            allow_bot_chats: false,
-            allow_group_chats: true,
-            allow_channel_posts: false,
-          },
+          url: `https://t.me/${botUsername}?startgroup=quiz_${quizId}`,
         },
       ],
     ],
   };
 }
 
-// ✅ Guruhda ready-up keyboard (callback_data ishlaydi chunki guruh kontekstida!)
+// ✅ Guruhda ready-up keyboard
 export function getGroupReadyKeyboard(quizId, readyCount, minPlayers = 2) {
   const needed = Math.max(0, minPlayers - readyCount);
   return {

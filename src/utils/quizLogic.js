@@ -11,7 +11,7 @@ export async function sendQuizQuestion(bot, chatId, session) {
 
   if (!isActive) return;
 
-  // AUTO-STOP
+  // AUTO-STOP (faolsizlik)
   if (unansweredCount >= config.MAX_UNANSWERED_QUESTIONS && !inactivityWarningShown) {
     session.inactivityWarningShown = true;
 
@@ -23,20 +23,25 @@ export async function sendQuizQuestion(bot, chatId, session) {
 
     setTimeout(() => {
       if (sessionManager.hasSession(chatId) && session.inactivityWarningShown) {
+        const savedSession = snapshotSession(chatId, session);
         sessionManager.endSession(chatId);
         bot.sendMessage(chatId, "⏹ Test faolsizlik sababli to'xtatildi.");
-        showResults(bot, chatId, session);
+        showResults(bot, chatId, savedSession);
       }
     }, 30000);
 
     return;
   }
 
-  // Test tugadi
+  // ✅ FIX: Test tugaganda — avval snapshot + endSession, keyin showResults
+  // Oldin: sessionManager.hasSession() tekshiruvi bor edi, lekin endSession yo'q edi
+  // Natija: session RAM da qolib ketardi → keyingi guruhda "allaqachon test bor" xatosi
   if (currentIndex >= questions.length) {
     setTimeout(async () => {
       if (sessionManager.hasSession(chatId)) {
-        await showResults(bot, chatId, session);
+        const savedSession = snapshotSession(chatId, session);
+        sessionManager.endSession(chatId); // ✅ session tozalanadi
+        await showResults(bot, chatId, savedSession);
       }
     }, 2000);
     return;
@@ -67,7 +72,7 @@ export async function sendQuizQuestion(bot, chatId, session) {
     session.questionStartTime = Date.now();
     session.answered = false;
 
-    // Poll → chatId mapping
+    // ✅ Poll → chatId mapping (guruhda poll_answer da chatId topish uchun)
     sessionManager.registerPoll(pollMessage.poll.id, chatId);
 
     if (session.maxTimeTimeout) clearTimeout(session.maxTimeTimeout);
@@ -90,26 +95,38 @@ export async function sendQuizQuestion(bot, chatId, session) {
   }
 }
 
-// NATIJALARNI KO'RSATISH + DB GA SAQLASH
+// ✅ Guruh natijalarini endSession DAN OLDIN saqlab olish
+// endSession → groupSessions.delete(chatId) bo'ladi, shuning uchun oldin snapshot kerak
+function snapshotSession(chatId, session) {
+  const isGroup = session.chatType !== "private";
+  const groupResults = isGroup ? sessionManager.getGroupResults(chatId) : null;
+
+  return {
+    ...session,
+    groupResults, // ✅ guruh natijalari snapshot da saqlanadi
+  };
+}
+
+// === NATIJALARNI KO'RSATISH ===
+// ✅ Bu funksiya sessionManager.endSession() KEYIN chaqiriladi
+// groupResults snapshot orqali keladi
 export async function showResults(bot, chatId, session) {
-  const { questions, correctAnswers, wrongAnswers, startTime, chatType, quizId, userId, userName } = session;
+  const { questions, correctAnswers, wrongAnswers, startTime, chatType, quizId } = session;
 
   const totalQuestions = questions.length;
-  const missed = totalQuestions - correctAnswers - wrongAnswers;
   const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
   const minutes = Math.floor(durationSeconds / 60);
   const seconds = durationSeconds % 60;
 
-  // Guruh — leaderboard
+  // ─── GURUH — leaderboard ───────────────────────────────
   if (chatType !== "private") {
-    const results = sessionManager.getGroupResults(chatId);
+    const results = session.groupResults || [];
 
     if (results.length === 0) {
       await bot.sendMessage(chatId, "❌ Hech kim testga javob bermadi.");
       return;
     }
 
-    // Guruh natijalarini DB ga saqlash
     for (const participant of results) {
       await saveResult({
         userId: participant.userId,
@@ -139,7 +156,11 @@ export async function showResults(bot, chatId, session) {
     return;
   }
 
-  // Private — natija + DB ga saqlash
+  // ─── PRIVATE ──────────────────────────────────────────
+  const missed = totalQuestions - correctAnswers - wrongAnswers;
+  const percentage = Math.round((correctAnswers / totalQuestions) * 100);
+  const emoji = percentage >= 80 ? "🏆" : percentage >= 60 ? "👍" : percentage >= 40 ? "📚" : "💪";
+
   await saveResult({
     userId: session.userId || chatId,
     userName: session.userName || "User",
@@ -152,20 +173,16 @@ export async function showResults(bot, chatId, session) {
     durationSeconds,
   });
 
-  const percentage = Math.round((correctAnswers / totalQuestions) * 100);
-  const emoji = percentage >= 80 ? "🏆" : percentage >= 60 ? "👍" : percentage >= 40 ? "📚" : "💪";
-
-  const resultText = `🏁 <b>Test yakunlandi!</b>
-
-📊 Jami savollar: ${totalQuestions}
-✅ To'g'ri: ${correctAnswers}
-❌ Noto'g'ri: ${wrongAnswers}
-⌛️ Javobsiz: ${missed}
-⏱ Vaqt: ${minutes} daqiqa ${seconds} soniya
-
-${emoji} Natija: <b>${percentage}%</b>
-
-Yangi test uchun /newtest`;
-
-  await bot.sendMessage(chatId, resultText, { parse_mode: "HTML" });
+  await bot.sendMessage(
+    chatId,
+    `🏁 <b>Test yakunlandi!</b>\n\n` +
+    `📊 Jami savollar: ${totalQuestions}\n` +
+    `✅ To'g'ri: ${correctAnswers}\n` +
+    `❌ Noto'g'ri: ${wrongAnswers}\n` +
+    `⌛️ Javobsiz: ${missed}\n` +
+    `⏱ Vaqt: ${minutes} daqiqa ${seconds} soniya\n\n` +
+    `${emoji} Natija: <b>${percentage}%</b>\n\n` +
+    `Yangi test uchun /newtest`,
+    { parse_mode: "HTML" },
+  );
 }

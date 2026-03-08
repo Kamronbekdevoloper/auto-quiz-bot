@@ -17,11 +17,12 @@ const START_COUNTDOWN   = 5; // sekund
 export function setupCommandHandlers(bot) {
 
   // /start
-  bot.onText(/\/start(.*)/, async (msg, match) => {
+  bot.onText(/\/start(?:@\w+)?\s*(.*)/, async (msg, match) => {
+    const args = match[1].trim();
     const userId   = msg.from.id;
     const chatId   = msg.chat.id;
     const chatType = msg.chat.type;
-    const args     = match[1].trim();
+
 
     await saveUser(msg.from);
 
