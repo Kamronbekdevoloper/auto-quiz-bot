@@ -1,6 +1,6 @@
 import sessionManager from "../managers/sessionManager.js";
 import quizStorage from "../managers/quizStorage.js";
-import { sendQuizQuestion, showResults } from "../utils/quizLogic.js";
+import { sendQuizQuestion, showResults, snapshotSession } from "../utils/quizLogic.js";
 import { config } from "../config.js";
 import {
   isUserSubscribed,
@@ -207,7 +207,8 @@ export function setupCallbackHandler(bot) {
       } catch (_) {}
 
       if (voteCount >= MIN_STOP_VOTES) {
-        const savedSession = { ...session };
+        // ✅ FIX: snapshotSession KEYIN endSession — groupResults bo'sh kelmasligi uchun
+        const savedSession = snapshotSession(targetChatId, session);
         sessionManager.endSession(targetChatId);
         await bot.sendMessage(targetChatId, "⏹ Test ovoz bilan to'xtatildi. Natijalar:");
         await showResults(bot, targetChatId, savedSession);
@@ -268,7 +269,7 @@ export function setupCallbackHandler(bot) {
       }
       await bot.answerCallbackQuery(query.id, { text: "⏹ To'xtatildi!" });
       await bot.deleteMessage(chatId, query.message.message_id);
-      const savedSession = { ...session };
+      const savedSession = snapshotSession(chatId, session);
       sessionManager.endSession(chatId);
       await bot.sendMessage(chatId, "⏹ Test to'xtatildi. Natijalar:");
       await showResults(bot, chatId, savedSession);
@@ -276,19 +277,27 @@ export function setupCallbackHandler(bot) {
     }
 
     if (data.startsWith("time_")) {
-      const isSubscribed = await isUserSubscribed(bot, userId, query.message.chat.type);
-      if (!isSubscribed) {
-        await bot.answerCallbackQuery(query.id, { text: "🔒 Avval kanalga obuna bo'ling!", show_alert: true });
-        const { text, keyboard } = getSubscriptionBlockMessage();
-        await bot.sendMessage(chatId, text, { parse_mode: "HTML", reply_markup: keyboard });
-        return;
-      }
-
       const timeLimit = parseInt(data.split("_")[1]);
       const session   = sessionManager.getSession(chatId);
 
       if (!session) {
         await bot.answerCallbackQuery(query.id, { text: "❌ Avval fayl yuboring!", show_alert: true });
+        return;
+      }
+
+      // ✅ FIX: Guruhda bir nechta kishi time_ tugmasini bossa, faqat bir marta ishlaydi
+      // session.timeLimit allaqachon o'rnatilgan bo'lsa — ikkinchi bosilish e'tiborga olinmaydi
+      if (session.timeLimit !== null && session.timeLimit !== undefined) {
+        await bot.answerCallbackQuery(query.id, { text: "⏱ Test allaqachon boshlangan!", show_alert: false });
+        return;
+      }
+
+      // Subscription faqat private chatda tekshiriladi (subscriptionChecker.js da ham bor)
+      const isSubscribed = await isUserSubscribed(bot, userId, query.message.chat.type);
+      if (!isSubscribed) {
+        await bot.answerCallbackQuery(query.id, { text: "🔒 Avval kanalga obuna bo'ling!", show_alert: true });
+        const { text, keyboard } = getSubscriptionBlockMessage();
+        await bot.sendMessage(chatId, text, { parse_mode: "HTML", reply_markup: keyboard });
         return;
       }
 
@@ -322,11 +331,23 @@ export function setupCallbackHandler(bot) {
 
 export function setupPollAnswerHandler(bot) {
   bot.on("poll_answer", async (pollAnswer) => {
-    const userId   = pollAnswer.user.id;
-    const userName = pollAnswer.user.username || pollAnswer.user.first_name || "User";
-    const pollId   = pollAnswer.poll_id;
+    const userId = pollAnswer.user.id;
 
-    // ✅ pollToChatMap orqali chatId topish
+    // ✅ FIX Bug 2: GroupAnonymousBot (@Channel_Bot, ID: 1087968824) ni filtrlaymiz
+    // Guruh kanalga ulangan bo'lsa, Telegram shu botni avtomatik yaratadi
+    // Bu bot real userlar o'rniga poll_answer yuborib, haqiqiy javoblarni bloklaydi
+    if (userId === 1087968824) {
+      console.log(`🚫 GroupAnonymousBot (Channel_Bot) javobi o'tkazib yuborildi`);
+      return;
+    }
+
+    // ✅ FIX Bug 1: username bo'lsa "@username", bo'lmasa faqat "firstName" (@ belgisisiz)
+    const userName = pollAnswer.user.username
+      ? `@${pollAnswer.user.username}`
+      : (pollAnswer.user.first_name || "User");
+    const pollId = pollAnswer.poll_id;
+
+    // pollToChatMap orqali chatId topish
     let chatId = sessionManager.getChatIdByPollId(pollId);
     if (!chatId) {
       chatId = userId; // fallback: private
@@ -336,6 +357,7 @@ export function setupPollAnswerHandler(bot) {
     const session = sessionManager.getSession(chatId);
     if (!session || !session.isActive) return;
 
+    // Subscription tekshiruvi — guruhda shart emas (subscriptionChecker.js da return true)
     const isSubscribed = await isUserSubscribed(bot, userId, session.chatType);
     if (!isSubscribed) {
       if (session.chatType === "private") sessionManager.endSession(chatId);
@@ -344,18 +366,23 @@ export function setupPollAnswerHandler(bot) {
 
     const isGroup = session.chatType !== "private";
 
-    // ✅ FIX: Guruhda har bir USER har bir POLLga bitta javob berishi mumkin
-    // Private: pollId bilan dedup (bitta user bitta poll)
-    // Guruh:   pollId_userId bilan dedup (har user o'z javobini beradi)
+    // Guruhda: har user har poll uchun bitta javob (pollId_userId)
+    // Private: faqat bitta javob (pollId)
     const dedupKey = isGroup ? `${pollId}_${userId}` : pollId;
-
     if (session.answeredQuestions.has(dedupKey)) return;
     session.answeredQuestions.add(dedupKey);
 
-    // Javob to'g'rimi?
-    const isCorrect = pollAnswer.option_ids[0] === session.currentShuffledQuestion?.correctIndex;
+    // ✅ FIX: isCorrect ni pollCorrectMap dan olamiz
+    // OLDIN: session.currentShuffledQuestion?.correctIndex
+    //   → birinchi user javob berganda currentShuffledQuestion yangi savolga o'zgaradi
+    //   → ikkinchi user eski pollga javob berganda NOTO'G'RI correctIndex ishlatilardi
+    // ENDI: pollId bo'yicha saqlab qo'yilgan correctIndex ishlatiladi
+    const correctIndex = session.pollCorrectMap?.get(pollId);
+    const isCorrect = correctIndex !== undefined
+      ? pollAnswer.option_ids[0] === correctIndex
+      : false;
 
-    // ✅ Guruh ishtirokchisi scorini yangilash (har user uchun — dedupKey bilan)
+    // Guruh ishtirokchisi scorini yangilash
     if (isGroup) {
       const groupSession = sessionManager.groupSessions.get(chatId);
       if (groupSession) {
@@ -371,17 +398,16 @@ export function setupPollAnswerHandler(bot) {
       }
     }
 
-    // ✅ FIX: Savolni faqat BIR MARTA oldinga siljitish
+    // Savolni faqat BIR MARTA oldinga siljitish
     // Guruhda birinchi javob bergan kishi savolni almashtiradi
     const advanceKey = `advance_${pollId}`;
     if (session.answeredQuestions.has(advanceKey)) {
-      // Savol allaqachon oldinga siljitilyapti — faqat score yangilandi, chiqamiz
       console.log(`📊 Guruh score yangilandi: ${userId} (${userName}) — ${isCorrect ? "✅" : "❌"}`);
       return;
     }
     session.answeredQuestions.add(advanceKey);
 
-    // === Quyidagi kod faqat BIR MARTA (birinchi javob uchun) ishlaydi ===
+    // Quyidagi kod faqat BIR MARTA (birinchi javob uchun) ishlaydi
 
     session.answered = true;
     sessionManager.resetUnanswered(chatId);
@@ -391,7 +417,7 @@ export function setupPollAnswerHandler(bot) {
       session.maxTimeTimeout = null;
     }
 
-    // Private uchun session-level counter (natija xabarida ishlatiladi)
+    // Private uchun session-level counter
     if (!isGroup) {
       if (isCorrect) {
         session.correctAnswers++;

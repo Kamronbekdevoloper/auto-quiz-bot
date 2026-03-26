@@ -1,5 +1,5 @@
 import sessionManager from "../managers/sessionManager.js";
-import { showResults } from "../utils/quizLogic.js";
+import { showResults, snapshotSession } from "../utils/quizLogic.js";
 import {
   isUserSubscribed,
   getSubscriptionBlockMessage,
@@ -12,7 +12,7 @@ import {
 import { saveUser } from "../services/dbService.js";
 
 const MIN_READY_PLAYERS = 2;
-const START_COUNTDOWN   = 5; // sekund
+const START_COUNTDOWN = 5;
 
 export function setupCommandHandlers(bot) {
 
@@ -23,12 +23,10 @@ export function setupCommandHandlers(bot) {
     const chatId   = msg.chat.id;
     const chatType = msg.chat.type;
 
-
     await saveUser(msg.from);
 
     // ════════════════════════════════════════════
-    // ✅ GURUHDA: /start quiz_QUIZID
-    // startgroup URL dan kelgan → chatId bor!
+    // GURUHDA: /start quiz_QUIZID
     // ════════════════════════════════════════════
     if (chatType !== "private" && args.startsWith("quiz_")) {
       const quizId     = args.replace("quiz_", "");
@@ -40,20 +38,17 @@ export function setupCommandHandlers(bot) {
         return;
       }
 
-      // Guruhda test allaqachon boryaptiganmi?
       if (sessionManager.hasSession(chatId)) {
         await bot.sendMessage(chatId, "⚠️ Bu guruhda allaqachon test davom etmoqda!\n/stop — Testni to'xtatish");
         return;
       }
 
-      // Guruh uchun pending quiz allaqachon bormi?
       const existing = sessionManager.getPendingGroup(quizId);
       if (existing && existing.chatId === chatId) {
         await bot.sendMessage(chatId, "⏳ Test allaqachon kutmoqda! Tayyor bo'lish uchun tugmani bosing.");
         return;
       }
 
-      // ✅ Ready-up xabarini guruhga yuborish
       const sentMsg = await bot.sendMessage(
         chatId,
         `🎯 <b>${quiz.title || "Test"}</b>\n\n` +
@@ -67,7 +62,6 @@ export function setupCommandHandlers(bot) {
         },
       );
 
-      // Pending group yaratish (chatId BILAN — chunki guruh kontekstidamiz!)
       sessionManager.createPendingGroup(quizId, chatId, sentMsg.message_id);
       console.log(`⏳ Guruh ready-up: quizId=${quizId}, chatId=${chatId}`);
       return;
@@ -77,7 +71,6 @@ export function setupCommandHandlers(bot) {
     // PRIVATE CHATDA
     // ════════════════════════════════════════════
     if (chatType === "private") {
-      // Subscription check
       const isSubscribed = await isUserSubscribed(bot, userId, "private");
       if (!isSubscribed) {
         const { text, keyboard } = getSubscriptionBlockMessage();
@@ -85,7 +78,6 @@ export function setupCommandHandlers(bot) {
         return;
       }
 
-      // Deep link: private chatda quiz boshlash
       if (args.startsWith("quiz_")) {
         const quizId     = args.replace("quiz_", "");
         const quizStorage = (await import("../managers/quizStorage.js")).default;
@@ -111,7 +103,6 @@ export function setupCommandHandlers(bot) {
         return;
       }
 
-      // Oddiy /start — bosh menyu
       await bot.sendMessage(
         chatId,
         `👋 <b>Xush kelibsiz!</b>\n\n` +
@@ -160,9 +151,14 @@ export function setupCommandHandlers(bot) {
     }
 
     const session = sessionManager.getSession(chatId);
+
+    // ✅ FIX: snapshotSession KEYIN endSession — guruh natijalarini yo'qotmaslik uchun
+    // OLDIN: { ...session } snapshot → endSession → groupResults bo'sh kelardi
+    // ENDI:  snapshotSession → endSession → showResults(snapshot)
+    const savedSession = snapshotSession(chatId, session);
     sessionManager.endSession(chatId);
     await bot.sendMessage(chatId, "⏹ Test to'xtatildi. Natijalar:");
-    await showResults(bot, chatId, session);
+    await showResults(bot, chatId, savedSession);
   });
 
   // /help
