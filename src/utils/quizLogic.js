@@ -33,14 +33,12 @@ export async function sendQuizQuestion(bot, chatId, session) {
     return;
   }
 
-  // ✅ FIX: Test tugaganda — avval snapshot + endSession, keyin showResults
-  // Oldin: sessionManager.hasSession() tekshiruvi bor edi, lekin endSession yo'q edi
-  // Natija: session RAM da qolib ketardi → keyingi guruhda "allaqachon test bor" xatosi
+  // Test tugaganda
   if (currentIndex >= questions.length) {
     setTimeout(async () => {
       if (sessionManager.hasSession(chatId)) {
         const savedSession = snapshotSession(chatId, session);
-        sessionManager.endSession(chatId); // ✅ session tozalanadi
+        sessionManager.endSession(chatId);
         await showResults(bot, chatId, savedSession);
       }
     }, 2000);
@@ -59,6 +57,19 @@ export async function sendQuizQuestion(bot, chatId, session) {
   session.currentShuffledQuestion = shuffled;
 
   try {
+    // ✅ Birinchi savolda guruh a'zolariga ogohlantirish
+    // Telegram poll_answer eventini faqat bot bilan oldin /start bosgan userlarga yuboradi
+    if (currentIndex === 0 && session.chatType !== "private") {
+      const botInfo = await bot.getMe();
+      await bot.sendMessage(
+        chatId,
+        `⚠️ <b>Diqqat!</b> Natijalar hisoblanishi uchun har bir ishtirokchi\n` +
+        `avval @${botInfo.username} ga private xabar orqali\n` +
+        `<b>/start</b> yuborgan bo'lishi kerak!`,
+        { parse_mode: "HTML" },
+      );
+    }
+
     await bot.sendMessage(chatId, `📝 Savol ${currentIndex + 1}/${questions.length}`);
 
     const pollMessage = await bot.sendPoll(chatId, shuffled.question, shuffled.options, {
@@ -68,12 +79,19 @@ export async function sendQuizQuestion(bot, chatId, session) {
       open_period: timeLimit,
     });
 
-    session.currentPollId = pollMessage.poll.id;
+    const pollId = pollMessage.poll.id;
+    session.currentPollId = pollId;
     session.questionStartTime = Date.now();
     session.answered = false;
 
-    // ✅ Poll → chatId mapping (guruhda poll_answer da chatId topish uchun)
-    sessionManager.registerPoll(pollMessage.poll.id, chatId);
+    // ✅ FIX: Poll yuborilganda correctIndex ni pollCorrectMap ga saqlaymiz
+    // Sabab: birinchi user javob berganda currentShuffledQuestion o'zgaradi
+    // Keyingi userlar eski pollga javob berganda ham to'g'ri correctIndex topiladi
+    if (!session.pollCorrectMap) session.pollCorrectMap = new Map();
+    session.pollCorrectMap.set(pollId, shuffled.correctIndex);
+
+    // Poll → chatId mapping (guruhda poll_answer da chatId topish uchun)
+    sessionManager.registerPoll(pollId, chatId);
 
     if (session.maxTimeTimeout) clearTimeout(session.maxTimeTimeout);
 
@@ -95,21 +113,19 @@ export async function sendQuizQuestion(bot, chatId, session) {
   }
 }
 
-// ✅ Guruh natijalarini endSession DAN OLDIN saqlab olish
-// endSession → groupSessions.delete(chatId) bo'ladi, shuning uchun oldin snapshot kerak
-function snapshotSession(chatId, session) {
+// ✅ Export qilindi — callBackHandler va commandHandler ham ishlatadi
+// endSession → groupSessions.delete(chatId) bo'ladi, shuning uchun OLDIN snapshot kerak
+export function snapshotSession(chatId, session) {
   const isGroup = session.chatType !== "private";
   const groupResults = isGroup ? sessionManager.getGroupResults(chatId) : null;
 
   return {
     ...session,
-    groupResults, // ✅ guruh natijalari snapshot da saqlanadi
+    groupResults,
   };
 }
 
 // === NATIJALARNI KO'RSATISH ===
-// ✅ Bu funksiya sessionManager.endSession() KEYIN chaqiriladi
-// groupResults snapshot orqali keladi
 export async function showResults(bot, chatId, session) {
   const { questions, correctAnswers, wrongAnswers, startTime, chatType, quizId } = session;
 
@@ -146,7 +162,9 @@ export async function showResults(bot, chatId, session) {
 
     results.forEach((p, i) => {
       const medal = medals[i] || `${i + 1}.`;
-      const name = p.userName.startsWith("@") ? p.userName : `@${p.userName}`;
+      // ✅ FIX Bug 3: userName allaqachon to'g'ri formatda ("@username" yoki "Ism")
+      // OLDIN: p.userName.startsWith("@") ? p.userName : `@${p.userName}` → hamma ga @ qo'shardi ❌
+      const name = p.userName;
       const t = `${Math.floor(p.duration / 60)}m ${p.duration % 60}s`;
       text += `${medal} ${name} – ${p.score}/${totalQuestions} (${t})\n`;
     });

@@ -25,6 +25,10 @@ class SessionManager {
       maxTimeTimeout: null,
       currentShuffledQuestion: null,
       currentPollId: null,
+      // ✅ FIX: Har poll uchun to'g'ri javob indeksini saqlaymiz
+      // Sabab: birinchi user javob berganda currentShuffledQuestion yangi savolga o'tadi
+      // Ikkinchi user eski pollga javob berganda isCorrect noto'g'ri chiqardi
+      pollCorrectMap: new Map(),      // pollId -> correctIndex
       questionStartTime: null,
       isActive: true,
       unansweredCount: 0,
@@ -40,7 +44,7 @@ class SessionManager {
     if (chatType !== "private") {
       this.groupSessions.set(chatId, {
         participants: new Map(),
-        stopVotes: new Set(), // Kim to'xtatishni xohlayapti
+        stopVotes: new Set(),
       });
     }
 
@@ -49,7 +53,6 @@ class SessionManager {
 
   // ─── GURUH KUTISH XONASI ─────────────────────────
 
-  // Guruh uchun "kutish" holati yaratish
   createPendingGroup(quizId, chatId, messageId) {
     this.pendingGroups.set(quizId, {
       chatId,
@@ -60,16 +63,13 @@ class SessionManager {
     console.log(`⏳ Guruh kutish yaratildi: quiz=${quizId}, chat=${chatId}`);
   }
 
-  // Tayyor o'yinchi qo'shish
   addReadyPlayer(quizId, userId, userName) {
     const pending = this.pendingGroups.get(quizId);
     if (!pending) return null;
-
     pending.readyPlayers.set(userId, userName);
     return pending;
   }
 
-  // Tayyor o'yinchilar soni
   getReadyCount(quizId) {
     const pending = this.pendingGroups.get(quizId);
     return pending ? pending.readyPlayers.size : 0;
@@ -194,7 +194,6 @@ class SessionManager {
     if (session) Object.assign(session, updates);
   }
 
-  // ✅ Xavfsiz loop
   clearAllSessions() {
     const chatIds = Array.from(this.sessions.keys());
     for (const chatId of chatIds) this.endSession(chatId);

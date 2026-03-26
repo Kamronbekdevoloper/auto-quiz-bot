@@ -10,9 +10,18 @@ import { setupCallbackHandler, setupPollAnswerHandler } from "./handlers/callBac
 import { setupInlineQueryHandler } from "./handlers/inlineHandler.js";
 
 // === BOT INITIALIZATION ===
-
-const bot = new TelegramBot(config.BOT_TOKEN, { polling: true });
-
+const bot = new TelegramBot(config.BOT_TOKEN, {
+  polling: {
+    allowedUpdates: [
+      "message",
+      "callback_query",
+      "inline_query",
+      "poll_answer",   // ← shu bo'lmasa guruh poll javoblari kelmaydi!
+      "poll",
+      "chosen_inline_result",
+    ],
+  },
+});
 console.log("✅ Bot ishga tushdi!");
 
 // ✅ MongoDB ulanish
